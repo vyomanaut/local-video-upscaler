@@ -1,0 +1,31 @@
+# .NET build output
+bin/
+obj/
+dist/
+
+# Visual Studio and user-local files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Native build output
+*.obj
+*.pdb
+native/**/*.exe
+
+# Downloaded/generated third-party binaries and caches
+tools/cache/
+tools/ffmpeg/bin/
+
+# Test and benchmark output
+*.VSR-*.mkv
+*.VSR-*.png
+/benchmark-*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
