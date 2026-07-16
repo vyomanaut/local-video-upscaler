@@ -18,6 +18,7 @@ native/**/*.exe
 # Downloaded/generated third-party binaries and caches
 tools/cache/
 tools/ffmpeg/bin/
+tools/rife/
 
 # Test and benchmark output
 *.VSR-*.mkv

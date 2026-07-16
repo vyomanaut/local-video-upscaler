@@ -15,6 +15,7 @@
 #include <io.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -26,6 +27,11 @@ using Microsoft::WRL::ComPtr;
 namespace
 {
 constexpr UINT NvidiaVendorId = 0x10DE;
+#ifndef LOCALVSR_PIPELINE_DEPTH
+#define LOCALVSR_PIPELINE_DEPTH 2
+#endif
+constexpr size_t PipelineDepth = LOCALVSR_PIPELINE_DEPTH;
+static_assert(PipelineDepth == 1 || PipelineDepth == 2);
 constexpr GUID NvidiaPpeInterfaceGuid = {
     0xd43ce1b3, 0x1f4b, 0x48ac,
     {0xba, 0xee, 0xc3, 0xc2, 0x53, 0x75, 0xe6, 0xf7}
@@ -196,8 +202,9 @@ public:
         return true;
     }
 
-    bool ProcessFrame(const std::vector<std::uint8_t>& input)
+    bool SubmitFrame(const std::vector<std::uint8_t>& input, size_t slot)
     {
+        if (slot >= PipelineDepth) return false;
         context_->UpdateSubresource(
             inputTexture_.Get(), 0, nullptr, input.data(),
             options_.inputWidth,
@@ -208,13 +215,19 @@ public:
         stream.pInputSurface = inputView_.Get();
 
         HRESULT hr = videoContext_->VideoProcessorBlt(
-            processor_.Get(), outputView_.Get(), 0, 1, &stream);
+            processor_.Get(), outputViews_[slot].Get(), 0, 1, &stream);
         if (FAILED(hr)) return Fail(L"VideoProcessorBlt", hr);
 
-        context_->CopyResource(stagingTexture_.Get(), outputTexture_.Get());
+        context_->CopyResource(stagingTextures_[slot].Get(), outputTextures_[slot].Get());
+        return true;
+    }
 
+    bool WriteFrame(size_t slot)
+    {
+        if (slot >= PipelineDepth) return false;
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        hr = context_->Map(stagingTexture_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        const HRESULT hr = context_->Map(
+            stagingTextures_[slot].Get(), 0, D3D11_MAP_READ, 0, &mapped);
         if (FAILED(hr)) return Fail(L"Map output texture", hr);
 
         const auto* bytes = static_cast<const std::uint8_t*>(mapped.pData);
@@ -231,7 +244,7 @@ public:
                 break;
             }
         }
-        context_->Unmap(stagingTexture_.Get(), 0);
+        context_->Unmap(stagingTextures_[slot].Get(), 0);
         return writeOk;
     }
 
@@ -255,14 +268,19 @@ private:
         output.Width = options_.outputWidth;
         output.Height = options_.outputHeight;
         output.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_VIDEO_ENCODER;
-        hr = device_->CreateTexture2D(&output, nullptr, &outputTexture_);
-        if (FAILED(hr)) return Fail(L"Create output texture", hr);
+        for (size_t slot = 0; slot < PipelineDepth; ++slot)
+        {
+            hr = device_->CreateTexture2D(&output, nullptr, &outputTextures_[slot]);
+            if (FAILED(hr)) return Fail(L"Create output texture", hr);
 
-        output.Usage = D3D11_USAGE_STAGING;
-        output.BindFlags = 0;
-        output.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        hr = device_->CreateTexture2D(&output, nullptr, &stagingTexture_);
-        return SUCCEEDED(hr) ? true : Fail(L"Create staging texture", hr);
+            D3D11_TEXTURE2D_DESC staging = output;
+            staging.Usage = D3D11_USAGE_STAGING;
+            staging.BindFlags = 0;
+            staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            hr = device_->CreateTexture2D(&staging, nullptr, &stagingTextures_[slot]);
+            if (FAILED(hr)) return Fail(L"Create staging texture", hr);
+        }
+        return true;
     }
 
     bool CreateViews()
@@ -279,9 +297,13 @@ private:
         D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc{};
         outputDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
         outputDesc.Texture2D.MipSlice = 0;
-        hr = videoDevice_->CreateVideoProcessorOutputView(
-            outputTexture_.Get(), enumerator_.Get(), &outputDesc, &outputView_);
-        return SUCCEEDED(hr) ? true : Fail(L"Create video-processor output view", hr);
+        for (size_t slot = 0; slot < PipelineDepth; ++slot)
+        {
+            hr = videoDevice_->CreateVideoProcessorOutputView(
+                outputTextures_[slot].Get(), enumerator_.Get(), &outputDesc, &outputViews_[slot]);
+            if (FAILED(hr)) return Fail(L"Create video-processor output view", hr);
+        }
+        return true;
     }
 
     static bool Fail(const wchar_t* operation, HRESULT hr)
@@ -298,10 +320,10 @@ private:
     ComPtr<ID3D11VideoProcessorEnumerator> enumerator_;
     ComPtr<ID3D11VideoProcessor> processor_;
     ComPtr<ID3D11Texture2D> inputTexture_;
-    ComPtr<ID3D11Texture2D> outputTexture_;
-    ComPtr<ID3D11Texture2D> stagingTexture_;
+    std::array<ComPtr<ID3D11Texture2D>, PipelineDepth> outputTextures_;
+    std::array<ComPtr<ID3D11Texture2D>, PipelineDepth> stagingTextures_;
     ComPtr<ID3D11VideoProcessorInputView> inputView_;
-    ComPtr<ID3D11VideoProcessorOutputView> outputView_;
+    std::array<ComPtr<ID3D11VideoProcessorOutputView>, PipelineDepth> outputViews_;
 };
 }
 
@@ -328,6 +350,9 @@ int wmain(int argc, wchar_t** argv)
         static_cast<size_t>(options.inputWidth) * options.inputHeight * 3 / 2;
     std::vector<std::uint8_t> frame(inputFrameSize);
     std::uint64_t frameNumber = 0;
+    bool hasPendingFrame = false;
+    size_t pendingSlot = 0;
+    size_t nextSlot = 0;
 
     while (true)
     {
@@ -341,13 +366,23 @@ int wmain(int argc, wchar_t** argv)
             return 4;
         }
 
-        if (!processor.ProcessFrame(frame))
+        if (!processor.SubmitFrame(frame, nextSlot))
             return std::cout ? 5 : 0; // A closed downstream pipe is a normal cancellation path.
+
+        if (hasPendingFrame && !processor.WriteFrame(pendingSlot))
+            return std::cout ? 5 : 0;
+
+        pendingSlot = nextSlot;
+        nextSlot = (nextSlot + 1) % PipelineDepth;
+        hasPendingFrame = true;
 
         ++frameNumber;
         if (frameNumber % 120 == 0)
             std::wcerr << L"Processed " << frameNumber << L" frames\n";
     }
+
+    if (hasPendingFrame && !processor.WriteFrame(pendingSlot))
+        return std::cout ? 5 : 0;
 
     std::wcerr << L"Completed " << frameNumber << L" frames\n";
     return 0;

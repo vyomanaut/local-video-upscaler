@@ -1,12 +1,14 @@
 param(
-    [string]$Version = '0.1.0-beta'
+    [string]$Version = '0.2.0-beta'
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $distRoot = Join-Path $repoRoot 'dist'
-$publishRoot = Join-Path $repoRoot 'bin\release-package-publish'
+$publishRoot = Join-Path $repoRoot 'obj\release-package-publish'
+$binRoot = Join-Path $repoRoot 'bin'
+$latestRoot = Join-Path $binRoot 'Release'
 $packageName = "LocalVSR-$Version-win-x64"
 $packageRoot = Join-Path $distRoot $packageName
 $zipPath = Join-Path $distRoot "$packageName.zip"
@@ -50,6 +52,12 @@ function Download-Once([string]$Url, [string]$Destination) {
 Write-Host 'Installing the pinned LGPL FFmpeg runtime...'
 & (Join-Path $PSScriptRoot 'install-ffmpeg.ps1')
 
+Write-Host 'Installing the pinned Vulkan frame-interpolation runtime...'
+& (Join-Path $PSScriptRoot 'install-rife.ps1')
+
+Write-Host 'Building the persistent RIFE streaming worker...'
+& (Join-Path $repoRoot 'native\RifeProcessor\build.ps1')
+
 Write-Host 'Building the native VSR worker...'
 & (Join-Path $repoRoot 'native\VsrProcessor\build.ps1')
 
@@ -71,6 +79,15 @@ New-Item -ItemType Directory -Force -Path $licenseRoot | Out-Null
 
 Copy-RequiredFile (Join-Path $publishRoot 'LocalVSR.exe') (Join-Path $packageRoot 'LocalVSR.exe')
 Copy-RequiredFile (Join-Path $repoRoot 'native\VsrProcessor\VsrProcessor.exe') (Join-Path $packageRoot 'VsrProcessor.exe')
+Copy-RequiredFile (Join-Path $repoRoot 'native\RifeProcessor\RifeProcessor.exe') (Join-Path $packageRoot 'RifeProcessor.exe')
+
+$rifeRoot = Join-Path $repoRoot 'tools\rife'
+$rifeModelRoot = Join-Path $packageRoot 'rife-v4.6'
+New-Item -ItemType Directory -Force -Path $rifeModelRoot | Out-Null
+Copy-RequiredFile (Join-Path $rifeRoot 'rife-ncnn-vulkan.exe') (Join-Path $packageRoot 'rife-ncnn-vulkan.exe')
+Copy-RequiredFile (Join-Path $rifeRoot 'vcomp140.dll') (Join-Path $packageRoot 'vcomp140.dll')
+Copy-RequiredFile (Join-Path $rifeRoot 'rife-v4.6\flownet.bin') (Join-Path $rifeModelRoot 'flownet.bin')
+Copy-RequiredFile (Join-Path $rifeRoot 'rife-v4.6\flownet.param') (Join-Path $rifeModelRoot 'flownet.param')
 
 $ffmpegRoot = Join-Path $repoRoot 'tools\ffmpeg'
 $ffmpegBin = Join-Path $ffmpegRoot 'bin'
@@ -93,6 +110,24 @@ Copy-RequiredFile (Join-Path $repoRoot 'README.md') (Join-Path $packageRoot 'REA
 Copy-RequiredFile (Join-Path $repoRoot 'LICENSE') (Join-Path $packageRoot 'LICENSE')
 Copy-RequiredFile (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') (Join-Path $packageRoot 'THIRD-PARTY-NOTICES.md')
 Copy-RequiredFile (Join-Path $ffmpegRoot 'LICENSE-FFmpeg-LGPLv3.txt') (Join-Path $licenseRoot 'FFmpeg-LGPLv3.txt')
+Copy-RequiredFile (Join-Path $rifeRoot 'LICENSE-RIFE-MIT.txt') (Join-Path $licenseRoot 'RIFE-ncnn-Vulkan-MIT.txt')
+Copy-RequiredFile (Join-Path $repoRoot 'third_party\rife\SOURCE.md') (Join-Path $licenseRoot 'RIFE-BINARY-PROVENANCE.md')
+
+$ncnnLicense = Join-Path $cacheRoot 'ncnn-b4ba207-LICENSE.txt'
+$libwebpLicense = Join-Path $cacheRoot 'libwebp-5abb558-COPYING.txt'
+$practicalRifeLicense = Join-Path $cacheRoot 'Practical-RIFE-17d8c7a-LICENSE.txt'
+Download-Once `
+    'https://raw.githubusercontent.com/Tencent/ncnn/b4ba207c18d3103d6df890c0e3a97b469b196b26/LICENSE.txt' `
+    $ncnnLicense
+Download-Once `
+    'https://raw.githubusercontent.com/webmproject/libwebp/5abb55823bb6196a918dd87202b2f32bbaff4c18/COPYING' `
+    $libwebpLicense
+Download-Once `
+    'https://raw.githubusercontent.com/hzwer/Practical-RIFE/17d8c7a1005b37f4c97bfee04e316aaec7fdc536/LICENSE' `
+    $practicalRifeLicense
+Copy-RequiredFile $ncnnLicense (Join-Path $licenseRoot 'ncnn-and-third-party-licenses.txt')
+Copy-RequiredFile $libwebpLicense (Join-Path $licenseRoot 'libwebp-COPYING.txt')
+Copy-RequiredFile $practicalRifeLicense (Join-Path $licenseRoot 'Practical-RIFE-MIT.txt')
 
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
 $coreRuntimeRoot = Join-Path $nugetRoot "microsoft.netcore.app.runtime.win-x64\$runtimeVersion"
@@ -133,6 +168,25 @@ Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -Compressio
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$zipPath.sha256", "$zipHash  $([IO.Path]::GetFileName($zipPath))`n")
 
+Write-Host 'Removing superseded local release artifacts...'
+$currentReleaseNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+[void]$currentReleaseNames.Add($packageName)
+[void]$currentReleaseNames.Add("$packageName.zip")
+[void]$currentReleaseNames.Add("$packageName.zip.sha256")
+foreach ($artifact in Get-ChildItem -LiteralPath $distRoot -Force) {
+    if ($artifact.Name -like 'LocalVSR-*-win-x64*' -and -not $currentReleaseNames.Contains($artifact.Name)) {
+        $verifiedArtifact = Assert-UnderRepo $artifact.FullName
+        Remove-Item -LiteralPath $verifiedArtifact -Recurse -Force
+    }
+}
+
+Write-Host 'Refreshing bin\Release with the single latest runnable build...'
+Reset-Directory $binRoot
+New-Item -ItemType Directory -Force -Path $latestRoot | Out-Null
+Get-ChildItem -LiteralPath $packageRoot -Force |
+    Copy-Item -Destination $latestRoot -Recurse -Force
+
 Write-Host "Portable release: $zipPath"
 Write-Host "SHA-256: $zipHash"
+Write-Host "Latest runnable build: $latestRoot"
 Write-Host "Corresponding source: $sourceRoot"

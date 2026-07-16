@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 
 namespace RtxLocalVideo;
 
@@ -22,6 +23,13 @@ internal sealed class MainForm : Form
     private readonly Label vsrQualityValue = new();
     private readonly Button vsrQualityInfoButton = new();
     private readonly ComboBox encodeQualityCombo = new();
+    private readonly CheckBox frameInterpolationCheck = new();
+    private readonly ComboBox frameMultiplierCombo = new();
+    private readonly Label effectiveFpsValue = new();
+    private readonly TextBox rangeStartText = new();
+    private readonly TextBox rangeEndText = new();
+    private readonly Label rangeSummary = new();
+    private readonly Button resetRangeButton = new();
     private readonly Label outputValue = new();
     private readonly Label statusLabel = new();
     private readonly ProgressBar progressBar = new();
@@ -37,13 +45,15 @@ internal sealed class MainForm : Form
     private SystemStatus? systemStatus;
     private CancellationTokenSource? exportCancellation;
     private bool vsrQualityControlAvailable;
+    private readonly string? initialMediaPath;
 
-    public MainForm()
+    public MainForm(string? initialMediaPath = null)
     {
+        this.initialMediaPath = initialMediaPath;
         Text = "LocalVSR";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(840, 480);
-        ClientSize = new Size(960, 520);
+        MinimumSize = new Size(840, 580);
+        ClientSize = new Size(960, 580);
         WindowState = FormWindowState.Normal;
         MaximizeBox = false;
         BackColor = PageColor;
@@ -115,6 +125,9 @@ internal sealed class MainForm : Form
             statusLabel.Text = "Required FFmpeg or VSR worker files are missing.";
             statusLabel.ForeColor = Color.Orange;
         }
+
+        if (initialMediaPath is not null)
+            await SelectVideoAsync(initialMediaPath);
     }
 
     private void BuildUi()
@@ -122,20 +135,24 @@ internal sealed class MainForm : Form
         var page = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(20, 16, 20, 16),
-            RowCount = 8,
+            Padding = new Padding(20, 12, 20, 12),
+            RowCount = 12,
             ColumnCount = 1,
             BackColor = PageColor,
             AutoScroll = true
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
         Controls.Add(page);
 
         var heading = new TableLayoutPanel
@@ -225,11 +242,11 @@ internal sealed class MainForm : Form
             ColumnCount = 5,
             RowCount = 2,
             BackColor = PanelColor,
-            Padding = new Padding(12, 8, 12, 8)
+            Padding = new Padding(12, 6, 12, 6)
         };
         optionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
-        optionsPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
-        optionsPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
+        optionsPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        optionsPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         optionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
         optionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19));
         optionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21));
@@ -307,13 +324,128 @@ internal sealed class MainForm : Form
         optionsPanel.Controls.Add(outputCell, 4, 1);
         page.Controls.Add(optionsPanel, 0, 4);
 
+        var frameRatePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            ColumnCount = 4,
+            RowCount = 1,
+            BackColor = PanelColor,
+            Padding = new Padding(12, 5, 12, 5)
+        };
+        frameRatePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        frameRatePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+        frameRatePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        frameRatePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        frameInterpolationCheck.Text = string.Empty;
+        frameInterpolationCheck.AutoSize = true;
+        frameInterpolationCheck.Anchor = AnchorStyles.Left;
+        frameInterpolationCheck.Enabled = false;
+        frameInterpolationCheck.Margin = new Padding(0, 3, 4, 0);
+        frameInterpolationCheck.AccessibleName = "Frame multiplication";
+        frameInterpolationCheck.AccessibleDescription =
+            "Generate motion-interpolated frames and increase the output frame rate.";
+        var frameInterpolationLabel = new Label
+        {
+            Text = "Frame multiplication",
+            AutoSize = true,
+            ForeColor = Color.White,
+            Margin = new Padding(0, 2, 14, 0),
+            Cursor = Cursors.Hand
+        };
+        frameInterpolationLabel.Click += (_, _) =>
+        {
+            if (frameInterpolationCheck.Enabled)
+                frameInterpolationCheck.Checked = !frameInterpolationCheck.Checked;
+        };
+        toolTip.SetToolTip(frameInterpolationCheck,
+            "Uses a local Vulkan AI model to create frames between originals. GPU usage and export time will increase.");
+        toolTip.SetToolTip(frameInterpolationLabel,
+            "Uses a local Vulkan AI model to create frames between originals. GPU usage and export time will increase.");
+        var frameInterpolationToggle = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Left,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0)
+        };
+        frameInterpolationToggle.Controls.Add(frameInterpolationCheck);
+        frameInterpolationToggle.Controls.Add(frameInterpolationLabel);
+        frameRatePanel.Controls.Add(frameInterpolationToggle, 0, 0);
+
+        StyleComboBox(frameMultiplierCombo);
+        frameMultiplierCombo.Margin = new Padding(0, 0, 8, 0);
+        frameMultiplierCombo.Visible = false;
+        frameMultiplierCombo.Enabled = false;
+        frameRatePanel.Controls.Add(frameMultiplierCombo, 1, 0);
+
+        effectiveFpsValue.AutoSize = true;
+        effectiveFpsValue.Anchor = AnchorStyles.Left;
+        effectiveFpsValue.ForeColor = MutedColor;
+        effectiveFpsValue.Margin = new Padding(0, 2, 0, 0);
+        effectiveFpsValue.Visible = false;
+        frameRatePanel.Controls.Add(effectiveFpsValue, 2, 0);
+        page.Controls.Add(frameRatePanel, 0, 6);
+
+        var rangePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            ColumnCount = 7,
+            RowCount = 1,
+            BackColor = PanelColor,
+            Padding = new Padding(12, 5, 12, 5)
+        };
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        rangePanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rangePanel.Controls.Add(new Label
+        {
+            Text = "Range",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            ForeColor = Color.White,
+            Margin = new Padding(0, 2, 10, 0)
+        }, 0, 0);
+        AddRangeLabel(rangePanel, 1, "Start");
+        StyleRangeTextBox(rangeStartText, "Start time");
+        rangePanel.Controls.Add(rangeStartText, 2, 0);
+        AddRangeLabel(rangePanel, 3, "End");
+        StyleRangeTextBox(rangeEndText, "End time");
+        rangePanel.Controls.Add(rangeEndText, 4, 0);
+        rangeSummary.AutoSize = false;
+        rangeSummary.Dock = DockStyle.Fill;
+        rangeSummary.TextAlign = ContentAlignment.MiddleLeft;
+        rangeSummary.ForeColor = MutedColor;
+        rangeSummary.Margin = new Padding(8, 2, 6, 0);
+        rangeSummary.Text = "Choose a video";
+        rangePanel.Controls.Add(rangeSummary, 5, 0);
+        StyleSecondaryButton(resetRangeButton, "Full video");
+        resetRangeButton.Padding = new Padding(7, 2, 7, 2);
+        resetRangeButton.Margin = new Padding(4, 0, 0, 0);
+        resetRangeButton.Enabled = false;
+        toolTip.SetToolTip(rangePanel,
+            "Use seconds, MM:SS, or HH:MM:SS. Decimals are supported.");
+        toolTip.SetToolTip(rangeStartText,
+            "Start timestamp: seconds, MM:SS, or HH:MM:SS.");
+        toolTip.SetToolTip(rangeEndText,
+            "End timestamp: seconds, MM:SS, or HH:MM:SS.");
+        rangePanel.Controls.Add(resetRangeButton, 6, 0);
+        page.Controls.Add(rangePanel, 0, 8);
+
         var diagnostics = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoSize = false,
             ColumnCount = 4,
             BackColor = PanelColor,
-            Padding = new Padding(12, 8, 12, 8)
+            Padding = new Padding(12, 6, 12, 6)
         };
         diagnostics.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         diagnostics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
@@ -321,7 +453,7 @@ internal sealed class MainForm : Form
         diagnostics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         AddDiagnostic(diagnostics, 0, "GPU", gpuValue);
         AddDiagnostic(diagnostics, 2, "DRIVER", driverValue);
-        page.Controls.Add(diagnostics, 0, 6);
+        page.Controls.Add(diagnostics, 0, 10);
 
         var actionArea = new TableLayoutPanel
         {
@@ -329,9 +461,9 @@ internal sealed class MainForm : Form
             AutoSize = false,
             ColumnCount = 3,
             RowCount = 2,
-            Padding = new Padding(0, 10, 0, 0)
+            Padding = new Padding(0, 8, 0, 0)
         };
-        actionArea.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        actionArea.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         actionArea.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         actionArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actionArea.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -357,12 +489,14 @@ internal sealed class MainForm : Form
         exportButton.Margin = new Padding(8, 0, 0, 0);
         actionArea.Controls.Add(exportButton, 2, 0);
         statusLabel.Text = "Choose a video or image to begin";
-        statusLabel.AutoSize = true;
+        statusLabel.AutoSize = false;
+        statusLabel.Dock = DockStyle.Fill;
+        statusLabel.TextAlign = ContentAlignment.TopLeft;
         statusLabel.ForeColor = MutedColor;
-        statusLabel.Margin = new Padding(0, 5, 0, 0);
+        statusLabel.Margin = new Padding(0);
         actionArea.Controls.Add(statusLabel, 0, 1);
         actionArea.SetColumnSpan(statusLabel, 3);
-        page.Controls.Add(actionArea, 0, 7);
+        page.Controls.Add(actionArea, 0, 11);
     }
 
     private void WireEvents()
@@ -377,6 +511,27 @@ internal sealed class MainForm : Form
 
         scaleCombo.SelectedIndexChanged += (_, _) => UpdateOutputPath();
         vsrQualitySlider.ValueChanged += (_, _) => UpdateVsrQualityDisplay();
+        frameInterpolationCheck.CheckedChanged += (_, _) =>
+        {
+            UpdateFrameRateControls();
+            UpdateOutputPath();
+        };
+        frameMultiplierCombo.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateEffectiveFps();
+            UpdateOutputPath();
+        };
+        rangeStartText.TextChanged += (_, _) =>
+        {
+            rangeStartText.ForeColor = Color.White;
+            UpdateOutputPath();
+        };
+        rangeEndText.TextChanged += (_, _) =>
+        {
+            rangeEndText.ForeColor = Color.White;
+            UpdateOutputPath();
+        };
+        resetRangeButton.Click += (_, _) => ResetMediaRange();
         outputButton.Click += (_, _) => ChooseOutput();
         exportButton.Click += async (_, _) => await ExportAsync();
         cancelButton.Click += (_, _) => exportCancellation?.Cancel();
@@ -436,6 +591,14 @@ internal sealed class MainForm : Form
         videoInfo = null;
         scaleCombo.Items.Clear();
         scaleCombo.Enabled = false;
+        frameInterpolationCheck.Checked = false;
+        frameInterpolationCheck.Enabled = false;
+        frameMultiplierCombo.Items.Clear();
+        rangeStartText.Enabled = false;
+        rangeEndText.Enabled = false;
+        resetRangeButton.Enabled = false;
+        rangeSummary.Text = "Inspecting…";
+        UpdateFrameRateControls();
         exportButton.Enabled = false;
         fileLabel.Text = Path.GetFileName(path);
         fileHint.Text = "Inspecting video…";
@@ -464,6 +627,8 @@ internal sealed class MainForm : Form
             statusLabel.Text = "Ready. The original file will not be modified.";
             exportButton.Enabled = systemStatus?.HasRtxGpu == true && AppPaths.AllDependenciesPresent;
             encodeQualityCombo.Enabled = !videoInfo.IsImage;
+            ConfigureMediaRange();
+            PopulateFrameMultiplierChoices();
             UpdateOutputPath();
         }
         catch (Exception ex)
@@ -471,6 +636,7 @@ internal sealed class MainForm : Form
             statusLabel.Text = ex.Message;
             statusLabel.ForeColor = Color.Orange;
             inputValue.Text = "Unsupported";
+            rangeSummary.Text = "Unavailable";
         }
     }
 
@@ -480,7 +646,9 @@ internal sealed class MainForm : Form
         var directory = Path.GetDirectoryName(selectedVideo)!;
         var stem = Path.GetFileNameWithoutExtension(selectedVideo);
         var extension = videoInfo?.IsImage == true ? ".png" : ".mkv";
-        outputPath = Path.Combine(directory, $"{stem}.VSR-{scale.Factor:0.#}x{extension}");
+        var frameRateSuffix = GetFrameMultiplier() > 1 ? $"-FPS-{GetFrameMultiplier()}x" : string.Empty;
+        var rangeSuffix = TryGetMediaRange(out var range, out _) && IsCustomRange(range) ? "-clip" : string.Empty;
+        outputPath = Path.Combine(directory, $"{stem}.VSR-{scale.Factor:0.#}x{frameRateSuffix}{rangeSuffix}{extension}");
         outputValue.Text = Path.GetFileName(outputPath);
         outputValue.Tag = outputPath;
     }
@@ -507,6 +675,15 @@ internal sealed class MainForm : Form
         if (selectedVideo is null || outputPath is null || videoInfo is null ||
             scaleCombo.SelectedItem is not ScaleChoice scale) return;
 
+        if (!TryGetMediaRange(out var range, out var rangeError))
+        {
+            rangeStartText.ForeColor = Color.Orange;
+            rangeEndText.ForeColor = Color.Orange;
+            MessageBox.Show(this, rangeError, "Invalid process range",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         if (File.Exists(outputPath))
         {
             var overwrite = MessageBox.Show(this, "The output file already exists. Replace it?",
@@ -515,6 +692,7 @@ internal sealed class MainForm : Form
         }
 
         var quality = encodeQualityCombo.SelectedIndex switch { 0 => 16, 2 => 24, _ => 21 };
+        var frameMultiplier = GetFrameMultiplier();
         int? vsrLevel = vsrQualityControlAvailable
             ? vsrQualitySlider.Value == 0 ? 5 : vsrQualitySlider.Value
             : null;
@@ -540,7 +718,8 @@ internal sealed class MainForm : Form
                 }
 
                 await ExportService.RunAsync(
-                    selectedVideo, outputPath, videoInfo, scale, quality, progress, exportCancellation.Token);
+                    selectedVideo, outputPath, videoInfo, scale, quality, frameMultiplier,
+                    range, progress, exportCancellation.Token);
             }
             finally
             {
@@ -586,6 +765,11 @@ internal sealed class MainForm : Form
         scaleCombo.Enabled = !exporting && videoInfo is not null;
         vsrQualitySlider.Enabled = !exporting && vsrQualityControlAvailable;
         encodeQualityCombo.Enabled = !exporting && videoInfo?.IsImage != true;
+        frameInterpolationCheck.Enabled = !exporting && videoInfo?.IsImage == false && frameMultiplierCombo.Items.Count > 0;
+        frameMultiplierCombo.Enabled = !exporting && frameInterpolationCheck.Checked && frameInterpolationCheck.Enabled;
+        rangeStartText.Enabled = !exporting && videoInfo?.IsImage == false;
+        rangeEndText.Enabled = !exporting && videoInfo?.IsImage == false;
+        resetRangeButton.Enabled = !exporting && videoInfo?.IsImage == false;
         outputButton.Enabled = !exporting && videoInfo is not null;
         dropPanel.Cursor = exporting ? Cursors.WaitCursor : Cursors.Hand;
     }
@@ -660,6 +844,204 @@ internal sealed class MainForm : Form
         vsrQualityValue.Text = vsrQualitySlider.Value == 0 ? "Auto" : vsrQualitySlider.Value.ToString();
     }
 
+    private void PopulateFrameMultiplierChoices()
+    {
+        frameMultiplierCombo.Items.Clear();
+        if (videoInfo?.IsImage != false || !AppPaths.FrameInterpolationDependenciesPresent)
+        {
+            frameInterpolationCheck.Enabled = false;
+            if (!AppPaths.FrameInterpolationDependenciesPresent)
+            {
+                toolTip.SetToolTip(frameInterpolationCheck,
+                    "Frame multiplication is unavailable because its local AI runtime or model is missing.");
+            }
+            UpdateFrameRateControls();
+            return;
+        }
+
+        foreach (var multiplier in new[] { 2, 4 })
+        {
+            if (videoInfo.FramesPerSecond * multiplier <= 240.01)
+                frameMultiplierCombo.Items.Add(new FrameMultiplierChoice(multiplier));
+        }
+
+        frameMultiplierCombo.SelectedIndex = frameMultiplierCombo.Items.Count > 0 ? 0 : -1;
+        frameInterpolationCheck.Enabled = frameMultiplierCombo.Items.Count > 0;
+        UpdateFrameRateControls();
+    }
+
+    private void UpdateFrameRateControls()
+    {
+        var visible = frameInterpolationCheck.Checked &&
+                      frameInterpolationCheck.Enabled &&
+                      videoInfo?.IsImage == false;
+        frameMultiplierCombo.Visible = visible;
+        frameMultiplierCombo.Enabled = visible && exportCancellation is null;
+        effectiveFpsValue.Visible = visible;
+        UpdateEffectiveFps();
+    }
+
+    private void UpdateEffectiveFps()
+    {
+        if (videoInfo is null || frameMultiplierCombo.SelectedItem is not FrameMultiplierChoice choice)
+        {
+            effectiveFpsValue.Text = string.Empty;
+            return;
+        }
+
+        effectiveFpsValue.Text = $"→ {videoInfo.FramesPerSecond * choice.Multiplier:0.###} fps effective";
+    }
+
+    private int GetFrameMultiplier() =>
+        frameInterpolationCheck.Checked &&
+        videoInfo?.IsImage == false &&
+        frameMultiplierCombo.SelectedItem is FrameMultiplierChoice choice
+            ? choice.Multiplier
+            : 1;
+
+    private void ConfigureMediaRange()
+    {
+        if (videoInfo is null) return;
+        if (videoInfo.IsImage)
+        {
+            rangeStartText.Text = "—";
+            rangeEndText.Text = "—";
+            rangeStartText.Enabled = false;
+            rangeEndText.Enabled = false;
+            resetRangeButton.Enabled = false;
+            rangeSummary.Text = "Still image";
+            return;
+        }
+
+        ResetMediaRange();
+        rangeStartText.Enabled = true;
+        rangeEndText.Enabled = true;
+        resetRangeButton.Enabled = true;
+    }
+
+    private void ResetMediaRange()
+    {
+        if (videoInfo?.IsImage != false) return;
+        rangeStartText.Text = "00:00:00";
+        rangeEndText.Text = FormatRangeTime(videoInfo.Duration);
+        rangeSummary.Text = $"of {FormatRangeTime(videoInfo.Duration)}";
+        UpdateOutputPath();
+    }
+
+    private bool TryGetMediaRange(out MediaRange range, out string error)
+    {
+        range = default;
+        error = string.Empty;
+        if (videoInfo is null)
+        {
+            error = "Choose a video first.";
+            return false;
+        }
+        if (videoInfo.IsImage)
+        {
+            range = MediaRange.Full(videoInfo);
+            return true;
+        }
+        if (!TryParseRangeTime(rangeStartText.Text, out var start))
+        {
+            error = "Start time must use seconds, MM:SS, or HH:MM:SS.";
+            return false;
+        }
+        if (!TryParseRangeTime(rangeEndText.Text, out var end))
+        {
+            error = "End time must use seconds, MM:SS, or HH:MM:SS.";
+            return false;
+        }
+
+        var frameTolerance = TimeSpan.FromSeconds(1d / Math.Max(1d, videoInfo.FramesPerSecond));
+        if (Math.Abs((end - videoInfo.Duration).TotalMilliseconds) <= 1.1 ||
+            end > videoInfo.Duration && end <= videoInfo.Duration + frameTolerance)
+            end = videoInfo.Duration;
+        if (start < TimeSpan.Zero || end <= start)
+        {
+            error = "End time must be later than start time.";
+            return false;
+        }
+        if (start >= videoInfo.Duration)
+        {
+            error = "Start time must be before the end of the video.";
+            return false;
+        }
+        if (end > videoInfo.Duration)
+        {
+            error = $"End time cannot exceed {FormatRangeTime(videoInfo.Duration)}.";
+            return false;
+        }
+
+        range = new MediaRange(start, end);
+        return true;
+    }
+
+    private bool IsCustomRange(MediaRange range) =>
+        videoInfo?.IsImage == false &&
+        (range.Start > TimeSpan.FromMilliseconds(1) ||
+         range.End < videoInfo.Duration - TimeSpan.FromMilliseconds(1));
+
+    private static bool TryParseRangeTime(string text, out TimeSpan value)
+    {
+        value = default;
+        var parts = text.Trim().Split(':');
+        if (parts.Length is < 1 or > 3 ||
+            !double.TryParse(parts[^1], NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out var seconds) ||
+            !double.IsFinite(seconds) || seconds < 0)
+            return false;
+
+        var hours = 0;
+        var minutes = 0;
+        if (parts.Length >= 2 &&
+            (!int.TryParse(parts[^2], NumberStyles.None, CultureInfo.InvariantCulture, out minutes) || minutes < 0))
+            return false;
+        if (parts.Length == 3 &&
+            (!int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out hours) || hours < 0))
+            return false;
+        if ((parts.Length >= 2 && seconds >= 60) ||
+            (parts.Length == 3 && minutes >= 60))
+            return false;
+
+        var totalSeconds = hours * 3600d + minutes * 60d + seconds;
+        if (totalSeconds > TimeSpan.MaxValue.TotalSeconds) return false;
+        value = TimeSpan.FromSeconds(totalSeconds);
+        return true;
+    }
+
+    private static string FormatRangeTime(TimeSpan value)
+    {
+        var rounded = TimeSpan.FromMilliseconds(Math.Round(value.TotalMilliseconds));
+        var hours = (long)Math.Floor(rounded.TotalHours);
+        var baseText = $"{hours:00}:{rounded.Minutes:00}:{rounded.Seconds:00}";
+        return rounded.Milliseconds == 0 ? baseText : $"{baseText}.{rounded.Milliseconds:000}";
+    }
+
+    private static void AddRangeLabel(TableLayoutPanel panel, int column, string text)
+    {
+        panel.Controls.Add(new Label
+        {
+            Text = text,
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            ForeColor = MutedColor,
+            Font = new Font("Segoe UI Semibold", 8F),
+            Margin = new Padding(column == 1 ? 0 : 8, 2, 4, 0)
+        }, column, 0);
+    }
+
+    private static void StyleRangeTextBox(TextBox textBox, string accessibleName)
+    {
+        textBox.Dock = DockStyle.Fill;
+        textBox.BorderStyle = BorderStyle.FixedSingle;
+        textBox.BackColor = Color.FromArgb(30, 36, 44);
+        textBox.ForeColor = Color.White;
+        textBox.TextAlign = HorizontalAlignment.Center;
+        textBox.Margin = new Padding(0);
+        textBox.AccessibleName = accessibleName;
+    }
+
     private static void StyleOptionValue(Label label)
     {
         label.Dock = DockStyle.Fill;
@@ -726,6 +1108,11 @@ internal sealed class MainForm : Form
 
     private static string FormatDuration(TimeSpan duration) =>
         duration.TotalHours >= 1 ? duration.ToString(@"h\:mm\:ss") : duration.ToString(@"m\:ss");
+
+    private sealed record FrameMultiplierChoice(int Multiplier)
+    {
+        public override string ToString() => $"{Multiplier}×";
+    }
 
     private sealed class DropPanel : Panel
     {

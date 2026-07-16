@@ -14,6 +14,8 @@ Drop a video or still image into the application, choose an output scale and VSR
 - Image input: PNG, JPEG, BMP, and TIFF
 - 1.5×, 2×, 3×, and 4× choices when the result remains within the driver's 4K processing limit
 - NVIDIA VSR quality slider with Auto and fixed levels 1–4
+- Optional 2× or 4× AI frame multiplication with the calculated effective FPS shown in the UI
+- Optional start and end timestamps so only a selected part of a video is processed
 - NVIDIA NVENC H.264 output
 - Audio, subtitles, chapters, and metadata copied where the output container supports them
 - Progress, cancellation, output naming, and restoration of the user's previous global VSR setting
@@ -22,8 +24,10 @@ Drop a video or still image into the application, choose an output scale and VSR
 Current pipeline:
 
 ```text
-FFmpeg decode → raw NV12 → D3D11 NVIDIA VSR → raw NV12 → FFmpeg NVENC encode
+FFmpeg NVDEC (when supported) → [optional persistent Vulkan AI frame interpolation] → D3D11 NVIDIA VSR → FFmpeg NVENC encode
 ```
+
+If the input cannot be decoded through NVIDIA CUDA/NVDEC, LocalVSR automatically falls back to FFmpeg's software decoder.
 
 ## Download and run
 
@@ -33,7 +37,7 @@ The intended distribution is a portable ZIP, not an installer:
 2. Extract the complete folder. Do not run the executable from inside the ZIP.
 3. Run `LocalVSR.exe`.
 
-No separate .NET installation is required. Keep the FFmpeg DLLs, `ffmpeg.exe`, `ffprobe.exe`, and `VsrProcessor.exe` beside `LocalVSR.exe`.
+No separate .NET installation is required. Keep all files and the `rife-v4.6` model folder from the ZIP beside `LocalVSR.exe`.
 
 Unsigned beta builds may trigger Microsoft Defender SmartScreen. Verify that the download came from the project's official release and compare its SHA-256 checksum before running it.
 
@@ -42,7 +46,25 @@ Unsigned beta builds may trigger Microsoft Defender SmartScreen. Verify that the
 - 64-bit Windows 10 or Windows 11
 - NVIDIA RTX GPU
 - NVIDIA graphics driver with RTX Video Super Resolution support
+- Vulkan support from the installed NVIDIA graphics driver for frame multiplication
 - Sufficient free disk space for the upscaled output
+
+## Frame multiplication
+
+Enable **Frame multiplication** after selecting a video, then choose:
+
+- `2×`: 24 → 48 FPS, 30 → 60 FPS, or 60 → 120 FPS
+- `4×`: 24 → 96 FPS or 30 → 120 FPS
+
+The UI shows the exact effective frame rate, including fractional rates such as 23.976 → 47.952 FPS. Choices that would exceed 240 FPS are not offered. Still images do not expose this control.
+
+Frame multiplication uses the local RIFE v4.6 neural interpolation model through ncnn and Vulkan. It runs on the RTX GPU, but it is not DLSS Frame Generation and does not impersonate or unlock an RTX 40/50 feature. Interpolation runs at the source resolution before VSR, so VSR enhances the original and generated frames consistently.
+
+The RIFE model is loaded once per export and frames stream through a bounded in-memory pipeline; no temporary image sequence is written. Two ordered inference jobs overlap interpolation work, while the native VSR worker overlaps GPU submission with readback. Hard scene cuts are detected and bypassed so the model does not blend unrelated scenes. The output has an exact multiplier-adjusted frame count, while source duration and audio timing remain unchanged.
+
+## Processing part of a video
+
+After selecting a video, enter a **Start** and **End** timestamp in the Range row. Seconds, `MM:SS`, and `HH:MM:SS` are accepted, including decimal fractions. **Full video** resets both fields. Video, audio, subtitles, chapters, and progress are limited to the selected interval, and partial exports receive `-clip` in the output name. Still images ignore this control.
 
 ## VSR quality control
 
@@ -65,7 +87,10 @@ Prerequisites:
 
 - Visual Studio 2022 Build Tools with the Desktop development with C++ workload
 - .NET 8 SDK
+- Git
 - PowerShell 7 or Windows PowerShell 5.1
+
+A separate Vulkan SDK installation is not required. The worker build downloads verified, pinned Vulkan headers and creates its loader import library from the Windows Vulkan loader already installed with the graphics driver.
 
 Create a complete portable release locally:
 
@@ -76,22 +101,29 @@ Create a complete portable release locally:
 The script:
 
 - Downloads and verifies the pinned LGPLv3 FFmpeg build.
+- Downloads verified, pinned RIFE/ncnn/libwebp sources and builds the persistent interpolation worker.
 - Builds the native D3D11 VSR worker.
 - Publishes the self-contained .NET application.
+- Replaces `bin/Release/` with the single latest runnable build.
 - Creates the portable ZIP and SHA-256 checksum under `dist/`.
+- Removes superseded versioned LocalVSR builds from `dist/`.
 - Downloads the exact FFmpeg and build-script source archives under `dist/third-party-source/` for release alongside the binary.
+
+For local testing, always launch `bin/Release/LocalVSR.exe`. Packaging scratch files and ordinary compiler output stay under the ignored `obj/` directory.
 
 For development builds:
 
 ```powershell
 .\tools\install-ffmpeg.ps1
+.\tools\install-rife.ps1
+.\native\RifeProcessor\build.ps1
 .\native\VsrProcessor\build.ps1
 dotnet build .\RtxLocalVideo.csproj -c Release
 ```
 
 ## Implementation notes
 
-LocalVSR does not impersonate a browser and does not redistribute NVIDIA's RTX Video SDK, NVAPI DLL, or drivers. The native worker uses Windows D3D11 video-processing interfaces and a driver extension also exercised by public Chromium and VLC implementations.
+LocalVSR does not impersonate a browser and does not redistribute NVIDIA's RTX Video SDK, Optical Flow SDK, NVAPI DLL, or drivers. The native worker uses Windows D3D11 video-processing interfaces and a driver extension also exercised by public Chromium and VLC implementations. Frame multiplication is provided by a LocalVSR streaming worker built from pinned, separately licensed open-source RIFE/ncnn sources; the unmodified upstream command-line program remains packaged as a compatibility fallback. See the third-party notices for exact versions and licenses.
 
 `native/VsrProbe` is a minimal standalone diagnostic that queries and toggles the stream extension using Windows SDK interfaces. It is a development tool and is not included in release packages.
 

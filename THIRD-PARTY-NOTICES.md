@@ -26,6 +26,24 @@ This build disables GPL-only dependencies including x264 and x265 and is distrib
 
 LocalVSR invokes `ffmpeg.exe` and `ffprobe.exe` as separate programs. FFmpeg is not renamed, modified, statically linked into LocalVSR, or represented as part of the LocalVSR source code.
 
+## RIFE ncnn Vulkan frame interpolation
+
+Portable builds include a LocalVSR streaming worker built from the source of `rife-ncnn-vulkan` release `20221029`, plus selected unmodified release files retained as a compatibility fallback:
+
+- Project and source: https://github.com/nihui/rife-ncnn-vulkan
+- Source commit: `a7532fc3f9f8f008cd6eecd6f2ffe2a9698e0cf7`
+- Windows archive SHA-256: `d8e4d772d26cd8006ef0ad0bc82eb191b53c68677d1ae2f42506d74cbbbea606`
+- Included model: RIFE v4.6
+- License: MIT; the license text is included as `licenses/RIFE-ncnn-Vulkan-MIT.txt`
+
+The neural model originates from the RIFE/Practical-RIFE project and its model releases are made available under that project's MIT license: https://github.com/hzwer/Practical-RIFE
+
+`RifeProcessor.exe` statically links pinned ncnn (`b4ba207c18d3103d6df890c0e3a97b469b196b26`, BSD 3-Clause and bundled third-party terms), libwebp (`5abb55823bb6196a918dd87202b2f32bbaff4c18`, BSD-style license), and the pinned upstream RIFE implementation. Their license texts are included in release packages. LocalVSR's own worker frontend is distributed under the project MIT license and its complete source and reproducible build script are under `native/RifeProcessor/`.
+
+Portable builds also retain the upstream `rife-ncnn-vulkan.exe` unchanged. LocalVSR invokes it only as a separate compatibility fallback when the persistent worker is unavailable.
+
+The upstream Windows archive also includes `vcomp140.dll`, a Microsoft Visual C++ OpenMP runtime redistributable. Microsoft Visual C++ licensing terms apply: https://visualstudio.microsoft.com/license-terms/
+
 ## Microsoft .NET
 
 Portable builds contain the Microsoft .NET 8 runtime and Windows Desktop runtime. .NET is licensed under the MIT License and includes third-party components under their respective licenses. The runtime license and third-party notices are included under `licenses/` in release packages.

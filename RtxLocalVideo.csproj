@@ -11,9 +11,10 @@
     <RootNamespace>RtxLocalVideo</RootNamespace>
     <Product>LocalVSR</Product>
     <Description>Local video upscaling for NVIDIA RTX GPUs</Description>
-    <Version>0.1.0-beta</Version>
+    <Version>0.2.0-beta</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RuntimeFrameworkVersion>8.0.29</RuntimeFrameworkVersion>
+    <BaseOutputPath>obj\build\</BaseOutputPath>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>

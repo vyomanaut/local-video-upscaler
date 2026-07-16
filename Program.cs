@@ -10,8 +10,15 @@ internal static class Program
             Environment.ExitCode = AppPaths.AllDependenciesPresent ? 0 : 2;
             return;
         }
+        if (args.Contains("--check-frame-interpolation-dependencies", StringComparer.OrdinalIgnoreCase))
+        {
+            Environment.ExitCode = AppPaths.FrameInterpolationDependenciesPresent ? 0 : 3;
+            return;
+        }
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        var initialMediaPath = args.FirstOrDefault(argument =>
+            !argument.StartsWith("--", StringComparison.Ordinal) && File.Exists(argument));
+        Application.Run(new MainForm(initialMediaPath));
     }
 }
