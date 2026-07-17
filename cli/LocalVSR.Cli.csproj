@@ -1,28 +1,31 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <AssemblyName>LocalVSR</AssemblyName>
+    <AssemblyName>LocalVSR.Cli</AssemblyName>
     <RootNamespace>RtxLocalVideo</RootNamespace>
-    <Product>LocalVSR</Product>
-    <Description>Local video upscaling for NVIDIA RTX GPUs</Description>
+    <Product>LocalVSR CLI</Product>
+    <Description>Headless command-line interface for LocalVSR</Description>
     <Version>0.2.0-beta</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RuntimeFrameworkVersion>8.0.29</RuntimeFrameworkVersion>
-    <BaseOutputPath>obj\build\</BaseOutputPath>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="cli\**\*.cs" />
+    <Compile Include="CliProgram.cs" />
+    <Compile Include="..\AppPaths.cs" Link="AppPaths.cs" />
+    <Compile Include="..\ExportService.cs" Link="ExportService.cs" />
+    <Compile Include="..\FrameInterpolationService.cs" Link="FrameInterpolationService.cs" />
+    <Compile Include="..\NvidiaVsrSettings.cs" Link="NvidiaVsrSettings.cs" />
+    <Compile Include="..\VideoProbe.cs" Link="VideoProbe.cs" />
   </ItemGroup>
 
 </Project>

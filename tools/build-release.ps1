@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $distRoot = Join-Path $repoRoot 'dist'
 $publishRoot = Join-Path $repoRoot 'obj\release-package-publish'
+$cliPublishRoot = Join-Path $repoRoot 'obj\release-cli-publish'
 $binRoot = Join-Path $repoRoot 'bin'
 $latestRoot = Join-Path $binRoot 'Release'
 $packageName = "LocalVSR-$Version-win-x64"
@@ -73,11 +74,24 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Publishing the self-contained LocalVSR CLI...'
+Reset-Directory $cliPublishRoot
+dotnet publish (Join-Path $repoRoot 'cli\LocalVSR.Cli.csproj') `
+    -c Release `
+    -o $cliPublishRoot `
+    -p:Version=$Version `
+    -p:DebugType=None `
+    -p:DebugSymbols=false
+if ($LASTEXITCODE -ne 0) {
+    throw "LocalVSR CLI publish failed with exit code $LASTEXITCODE."
+}
+
 Reset-Directory $packageRoot
 $licenseRoot = Join-Path $packageRoot 'licenses'
 New-Item -ItemType Directory -Force -Path $licenseRoot | Out-Null
 
 Copy-RequiredFile (Join-Path $publishRoot 'LocalVSR.exe') (Join-Path $packageRoot 'LocalVSR.exe')
+Copy-RequiredFile (Join-Path $cliPublishRoot 'LocalVSR.Cli.exe') (Join-Path $packageRoot 'LocalVSR.Cli.exe')
 Copy-RequiredFile (Join-Path $repoRoot 'native\VsrProcessor\VsrProcessor.exe') (Join-Path $packageRoot 'VsrProcessor.exe')
 Copy-RequiredFile (Join-Path $repoRoot 'native\RifeProcessor\RifeProcessor.exe') (Join-Path $packageRoot 'RifeProcessor.exe')
 
@@ -181,12 +195,28 @@ foreach ($artifact in Get-ChildItem -LiteralPath $distRoot -Force) {
 }
 
 Write-Host 'Refreshing bin\Release with the single latest runnable build...'
-Reset-Directory $binRoot
-New-Item -ItemType Directory -Force -Path $latestRoot | Out-Null
-Get-ChildItem -LiteralPath $packageRoot -Force |
-    Copy-Item -Destination $latestRoot -Recurse -Force
+$releaseProcesses = @(Get-Process -Name 'LocalVSR', 'LocalVSR.Cli' -ErrorAction SilentlyContinue |
+    Where-Object {
+        try {
+            $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith(
+                [IO.Path]::GetFullPath($latestRoot) + [IO.Path]::DirectorySeparatorChar,
+                [StringComparison]::OrdinalIgnoreCase)
+        }
+        catch { $false }
+    })
+if ($releaseProcesses.Count -gt 0) {
+    Write-Warning 'bin\Release is currently running, so its refresh was skipped. The portable package is complete.'
+}
+else {
+    Reset-Directory $binRoot
+    New-Item -ItemType Directory -Force -Path $latestRoot | Out-Null
+    Get-ChildItem -LiteralPath $packageRoot -Force |
+        Copy-Item -Destination $latestRoot -Recurse -Force
+}
 
 Write-Host "Portable release: $zipPath"
 Write-Host "SHA-256: $zipHash"
-Write-Host "Latest runnable build: $latestRoot"
+if ($releaseProcesses.Count -eq 0) {
+    Write-Host "Latest runnable build: $latestRoot"
+}
 Write-Host "Corresponding source: $sourceRoot"

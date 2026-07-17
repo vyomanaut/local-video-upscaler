@@ -13,6 +13,8 @@ internal sealed record VideoInfo(
     bool IsImage)
 {
     public double FramesPerSecond => (double)FrameRateNumerator / FrameRateDenominator;
+    public int ProcessingWidth => IsImage ? Width + (Width & 1) : Width;
+    public int ProcessingHeight => IsImage ? Height + (Height & 1) : Height;
 }
 
 internal sealed record ScaleChoice(double Factor, int Width, int Height)
@@ -67,8 +69,10 @@ internal static class VideoProbe
             : null;
         _ = double.TryParse(durationText, NumberStyles.Float, CultureInfo.InvariantCulture, out var durationSeconds);
 
-        if (width < 90 || height < 90 || width % 2 != 0 || height % 2 != 0)
-            throw new InvalidOperationException("This first exporter build requires an even-sized video of at least 90 × 90 pixels.");
+        if (width < 90 || height < 90)
+            throw new InvalidOperationException("Images and videos must be at least 90 × 90 pixels.");
+        if (!isImage && (width % 2 != 0 || height % 2 != 0))
+            throw new InvalidOperationException("Videos must have even width and height. Odd-sized images are adjusted automatically.");
 
         return new VideoInfo(width, height, numerator, denominator, TimeSpan.FromSeconds(durationSeconds), isImage);
     }

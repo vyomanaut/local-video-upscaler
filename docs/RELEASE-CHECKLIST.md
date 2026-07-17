@@ -10,6 +10,7 @@
 - Confirm 2× and 4× frame multiplication, effective FPS, exact frame counts, audio timing, scene-cut bypass, and cancellation cleanup.
 - Confirm the persistent RIFE worker/model checksums and Vulkan inference on the target RTX GPU, then separately exercise the upstream-CLI fallback.
 - Confirm CUDA/NVDEC is selected for a supported H.264/HEVC input and software decode is selected for an unsupported input.
+- Run CLI `probe` and headless image/video exports; verify JSON output, nonzero validation exit codes, Ctrl+C cleanup, and no GUI window.
 - Review `THIRD-PARTY-NOTICES.md` and the generated license directory.
 
 ## Build
@@ -23,6 +24,7 @@ Run:
 This creates:
 
 - `bin/Release/LocalVSR.exe` and its required runtime files as the single latest local build
+- `bin/Release/LocalVSR.Cli.exe` for headless testing and automation
 - `dist/LocalVSR-0.2.0-beta-win-x64.zip`
 - `dist/LocalVSR-0.2.0-beta-win-x64.zip.sha256`
 - `dist/third-party-source/`
@@ -32,6 +34,7 @@ Older versioned LocalVSR artifacts are removed automatically; release-build scra
 ## Before publishing
 
 - Extract the ZIP into a clean directory and launch `LocalVSR.exe`.
+- Run `LocalVSR.Cli.exe --help` and a JSON `probe` command from the extracted directory.
 - Confirm FFmpeg DLLs remain beside the application and are not folded into the EXE.
 - Confirm `RifeProcessor.exe`, `rife-ncnn-vulkan.exe`, `vcomp140.dll`, and `rife-v4.6/` remain beside the application.
 - Scan the ZIP and executable with Microsoft Defender.

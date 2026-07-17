@@ -117,7 +117,11 @@ internal static class ExportService
         AddRangeInput(info, inputPath, video, range);
         Add(info, "-map", "0:v:0", "-an", "-sn", "-dn");
         if (video.IsImage)
-            Add(info, "-frames:v", "1");
+        {
+            Add(info,
+                "-frames:v", "1",
+                "-vf", $"scale={video.ProcessingWidth}:{video.ProcessingHeight}:flags=lanczos");
+        }
         else
         {
             var sourceRate = $"{video.FrameRateNumerator}/{video.FrameRateDenominator}";
@@ -137,8 +141,8 @@ internal static class ExportService
     {
         var info = CreateStartInfo(AppPaths.VsrProcessor, redirectOutput: true, redirectInput: true);
         Add(info,
-            "--input-width", video.Width.ToString(CultureInfo.InvariantCulture),
-            "--input-height", video.Height.ToString(CultureInfo.InvariantCulture),
+            "--input-width", video.ProcessingWidth.ToString(CultureInfo.InvariantCulture),
+            "--input-height", video.ProcessingHeight.ToString(CultureInfo.InvariantCulture),
             "--output-width", scale.Width.ToString(CultureInfo.InvariantCulture),
             "--output-height", scale.Height.ToString(CultureInfo.InvariantCulture),
             "--fps-numerator", outputFrameRateNumerator.ToString(CultureInfo.InvariantCulture),

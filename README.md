@@ -41,6 +41,26 @@ No separate .NET installation is required. Keep all files and the `rife-v4.6` mo
 
 Unsigned beta builds may trigger Microsoft Defender SmartScreen. Verify that the download came from the project's official release and compare its SHA-256 checksum before running it.
 
+## Headless CLI
+
+`LocalVSR.Cli.exe` runs the same export pipeline without initializing WinForms or opening any window. Progress is written to stderr, the completed output path is written to stdout, and Ctrl+C cancels the whole process tree and removes partial output.
+
+```powershell
+# Inspect media and available output sizes
+.\LocalVSR.Cli.exe probe .\video.mp4 --json
+
+# 2× VSR level 4 export
+.\LocalVSR.Cli.exe upscale .\video.mp4 --scale 2 --vsr-quality 4 --overwrite
+
+# Process seconds 10–20 and double the frame rate
+.\LocalVSR.Cli.exe upscale .\video.mp4 --start 10 --end 20 --frame-multiplier 2 --json
+
+# Image export without changing the current global NVIDIA VSR level
+.\LocalVSR.Cli.exe upscale .\image.png --scale 4 --vsr-quality current
+```
+
+Run `.\LocalVSR.Cli.exe --help` for every option. `--json` gives agents a machine-readable final result; combine it with `--quiet` when progress events are not needed. Exit codes are `0` for success, `2` for invalid arguments, `3` for a missing dependency, `4` for an export failure, and `130` for cancellation.
+
 ## Requirements
 
 - 64-bit Windows 10 or Windows 11
@@ -103,13 +123,13 @@ The script:
 - Downloads and verifies the pinned LGPLv3 FFmpeg build.
 - Downloads verified, pinned RIFE/ncnn/libwebp sources and builds the persistent interpolation worker.
 - Builds the native D3D11 VSR worker.
-- Publishes the self-contained .NET application.
+- Publishes the self-contained GUI and headless CLI applications.
 - Replaces `bin/Release/` with the single latest runnable build.
 - Creates the portable ZIP and SHA-256 checksum under `dist/`.
 - Removes superseded versioned LocalVSR builds from `dist/`.
 - Downloads the exact FFmpeg and build-script source archives under `dist/third-party-source/` for release alongside the binary.
 
-For local testing, always launch `bin/Release/LocalVSR.exe`. Packaging scratch files and ordinary compiler output stay under the ignored `obj/` directory.
+For local GUI testing, launch `bin/Release/LocalVSR.exe`. For non-interactive tests and automation, use `bin/Release/LocalVSR.Cli.exe`. Packaging scratch files and ordinary compiler output stay under the ignored `obj/` directory.
 
 For development builds:
 
@@ -119,6 +139,7 @@ For development builds:
 .\native\RifeProcessor\build.ps1
 .\native\VsrProcessor\build.ps1
 dotnet build .\RtxLocalVideo.csproj -c Release
+dotnet build .\cli\LocalVSR.Cli.csproj -c Release
 ```
 
 ## Implementation notes

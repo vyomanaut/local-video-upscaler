@@ -577,7 +577,7 @@ internal sealed class MainForm : Form
         if (exportCancellation is not null) return;
         using var dialog = new OpenFileDialog
         {
-            Title = "Choose a video to upscale",
+            Title = "Choose a video or image to upscale",
             Filter = "Videos and images|*.mp4;*.mkv;*.webm;*.avi;*.mov;*.m4v;*.wmv;*.ts;*.m2ts;*.ogv;*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff|Video files|*.mp4;*.mkv;*.webm;*.avi;*.mov;*.m4v;*.wmv;*.ts;*.m2ts;*.ogv|Image files|*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff|All files|*.*",
             CheckFileExists = true
         };
@@ -601,8 +601,8 @@ internal sealed class MainForm : Form
         UpdateFrameRateControls();
         exportButton.Enabled = false;
         fileLabel.Text = Path.GetFileName(path);
-        fileHint.Text = "Inspecting video…";
-        statusLabel.Text = "Reading resolution, duration, and frame rate…";
+        fileHint.Text = "Inspecting media…";
+        statusLabel.Text = "Reading media information…";
         statusLabel.ForeColor = MutedColor;
         dropPanel.BorderColor = Color.White;
         dropPanel.Invalidate();
